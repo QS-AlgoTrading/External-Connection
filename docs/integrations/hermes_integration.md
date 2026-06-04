@@ -76,19 +76,22 @@ Sample Claude Desktop `mcpServers` block (other MCP-aware agents use similar con
     "quantstand-hermes": {
       "command": "/absolute/path/to/.venv/bin/python",
       "args": [
-        "/absolute/path/to/QuantStand-Ant/scripts/run_external_mcp_server.py"
+        "/absolute/path/to/External-Connection/scripts/run_external_mcp_server.py"
       ],
       "env": {
         "QUANTSTAND_EXTERNAL_BASE_URL": "http://<quantstand-host>:8765",
         "QUANTSTAND_EXTERNAL_STRATEGY_ID": "hermes",
-        "QUANTSTAND_EXTERNAL_TIMEOUT_SEC": "10.0"
+        "QUANTSTAND_EXTERNAL_TIMEOUT_SEC": "10.0",
+        "QUANTSTAND_EXTERNAL_API_KEY": "<API key the operator gives you>"
       }
     }
   }
 }
 ```
 
-Substitute `<quantstand-host>` for the IP / hostname of the machine running the REST service.
+Substitute:
+- `<quantstand-host>` — the hostname/IP where the REST service runs (see "How to reach the service" below).
+- `<API key the operator gives you>` — a shared secret the operator generates and sends you out-of-band (e.g., over a chat that isn't this repo). The same string also lives in `QUANTSTAND_EXTERNAL_API_KEY` on the server side. If the operator says auth is disabled (local dev only), omit this env var.
 
 ### 4. Verify
 
@@ -96,17 +99,41 @@ First call from your agent should be `create_session`. Returns the strategy info
 
 ---
 
+## How to reach the service
+
+The QuantStand operator runs the REST service on their machine. There are three ways to expose it to your agent depending on the network setup:
+
+1. **Same machine** — both you and the operator running on the same box. `QUANTSTAND_EXTERNAL_BASE_URL=http://127.0.0.1:8765`.
+2. **Same local network** — operator binds to `0.0.0.0` and shares a LAN IP. `QUANTSTAND_EXTERNAL_BASE_URL=http://192.168.x.x:8765` (or whatever the operator sends).
+3. **Different networks (recommended for remote integrations)** — operator runs Tailscale. They send you an invite to their tailnet plus a stable hostname like `mac-mini.tail-XXXX.ts.net`. You install Tailscale on your side, accept the invite, then `QUANTSTAND_EXTERNAL_BASE_URL=http://mac-mini.tail-XXXX.ts.net:8765`.
+
+Tailscale install:
+
+```bash
+# macOS
+brew install --cask tailscale
+# Linux
+curl -fsSL https://tailscale.com/install.sh | sh
+```
+
+Then `sudo tailscale up` and accept the operator's invite link. The hostname they send you works from anywhere both machines are online.
+
+---
+
 ## Setup — REST path (no MCP)
 
 The REST service is plain HTTP. Any client works.
 
+When the operator has API-key auth ON (the normal case for any non-localhost deployment), every request needs an `X-API-Key: <key>` header. `/health` and `/docs` are exempt so you can do liveness checks and browse Swagger without the key.
+
 ```bash
-# Sanity
+# Sanity — no key needed
 curl http://<quantstand-host>:8765/health
 # {"status":"ok"}
 
-# Create a session before placing orders
+# Create a session — key required if auth is on
 curl -X POST http://<quantstand-host>:8765/strategies/hermes \
+  -H 'X-API-Key: <key>' \
   -H 'content-type: application/json' \
   -d '{"starting_equity": 10000, "slippage_bps": 10}'
 ```
@@ -335,6 +362,7 @@ The `error` field on order-style responses is one of:
 **HTTP status codes**:
 - `200`: request reached the service. Check `error` field for business outcome.
 - `400`: malformed request body (bad JSON, missing field).
+- `401`: API-key auth failure. Body is `{"detail": {"error": "missing_api_key" | "invalid_api_key", "reason": "..."}}`.
 - `404`: unknown strategy_id or symbol (for read endpoints).
 
 ---
@@ -346,6 +374,7 @@ The `error` field on order-style responses is one of:
 | `QUANTSTAND_EXTERNAL_BASE_URL` | `http://127.0.0.1:8765` | Where the REST service is reachable |
 | `QUANTSTAND_EXTERNAL_STRATEGY_ID` | `hermes` | Which strategy this shim instance acts as |
 | `QUANTSTAND_EXTERNAL_TIMEOUT_SEC` | `10.0` | HTTP timeout for each call |
+| `QUANTSTAND_EXTERNAL_API_KEY` | _unset_ | Auth header value. Operator gives you the string out-of-band. Leave unset only if the operator says auth is off. |
 
 ---
 
@@ -373,6 +402,8 @@ The `error` field on order-style responses is one of:
 | Symptom | Likely cause |
 |---|---|
 | `ERR_CONNECTION_REFUSED` / 503 | REST service isn't running on the operator side. Ping them. |
+| `401 missing_api_key` on every call | You don't have `QUANTSTAND_EXTERNAL_API_KEY` set on the shim's environment. |
+| `401 invalid_api_key` on every call | Your key doesn't match what the server expects. Get the current key from the operator. |
 | Every order returns `symbol_not_supported` | Wrong symbol format. Use `BTCUSDT`, not `BTC/USDT` or `BTC-USDT`. |
 | Every order returns `kill_switch_active` | Operator armed the kill switch. Out of your hands. |
 | Every order returns `drawdown_halt` | Strategy equity is 30%+ below peak. Out of your hands until operator resets. |
