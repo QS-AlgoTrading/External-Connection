@@ -1,0 +1,13 @@
+# Minimal deps for the external paper-trading service + MCP shim.
+# No pandas / numpy / optuna — engine_external doesn't use them.
+
+# REST service
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+
+# MCP shim + HTTP client
+mcp==1.27.2
+httpx==0.28.1
+
+# KuCoin live ticker (mark-price source for paper fills)
+ccxt==4.3.28
