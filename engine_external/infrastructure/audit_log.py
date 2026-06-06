@@ -102,6 +102,7 @@ def log_modify_sl(
     *,
     strategy_id: str,
     symbol: str,
+    old_sl: float,
     new_sl: float,
     result: OperationResult,
 ) -> None:
@@ -112,6 +113,7 @@ def log_modify_sl(
             "ts": _ts(),
             "strategy_id": strategy_id,
             "symbol": symbol,
+            "old_sl": old_sl,
             "new_sl": new_sl,
             "result": {
                 "error": result.error.value,

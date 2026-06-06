@@ -45,6 +45,7 @@ def _serialise_position(pos: _OpenPositionRecord) -> dict:
         "initial_volume": pos.initial_volume,
         "current_volume": pos.current_volume,
         "sl_price": pos.sl_price,
+        "initial_sl_price": pos.initial_sl_price,
         "tp_price": pos.tp_price,
     }
 
@@ -102,6 +103,7 @@ def _parse_position(d: dict) -> _OpenPositionRecord:
         initial_volume=float(d["initial_volume"]),
         current_volume=float(d["current_volume"]),
         sl_price=float(d["sl_price"]),
+        initial_sl_price=float(d.get("initial_sl_price", d["sl_price"])),
         tp_price=float(d["tp_price"]) if d["tp_price"] is not None else None,
     )
 

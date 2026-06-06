@@ -178,3 +178,25 @@ def validate_sl_vs_entry(
     if side is Direction.SHORT and sl_price <= entry_price:
         return OrderError.INVALID_SL
     return OrderError.OK
+
+
+def validate_trailing_sl(
+    side: Direction,
+    old_sl: float,
+    new_sl: float,
+) -> OrderError:
+    """Check a trailing-stop modification does not increase risk.
+
+    Only allows moving the SL in the risk-reducing direction:
+        LONG:  new_sl >= old_sl  (move SL up, never down)
+        SHORT: new_sl <= old_sl  (move SL down, never up)
+
+    This is deliberately more permissive than `validate_sl_vs_entry`
+    (which requires the SL stay on the loss side of entry) — trailing
+    stops are expected to cross the entry price for breakeven trades.
+    """
+    if side is Direction.LONG and new_sl < old_sl:
+        return OrderError.INVALID_SL
+    if side is Direction.SHORT and new_sl > old_sl:
+        return OrderError.INVALID_SL
+    return OrderError.OK
