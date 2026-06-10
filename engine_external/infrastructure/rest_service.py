@@ -531,6 +531,7 @@ def create_app(
             audit_log_path(st.data_root, strategy_id),
             strategy_id=strategy_id,
             symbol=symbol,
+            old_sl=r.old_sl if r.old_sl is not None else body.sl_price,
             new_sl=body.sl_price,
             result=r,
         )

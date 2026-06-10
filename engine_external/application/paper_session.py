@@ -46,6 +46,7 @@ from engine_external.domain.order_models import (
     OrderError,
     validate_order,
     validate_sl_vs_entry,
+    validate_trailing_sl,
 )
 from engine_external.domain.risk_sizing import direction_sign, size_from_risk
 from engine_external.domain.rr_metrics import (
@@ -62,7 +63,13 @@ from engine_futures.domain.strategy.strategy_models import Direction
 
 @dataclass
 class _OpenPositionRecord:
-    """One open position. Mutable — partial closes shrink current_volume."""
+    """One open position. Mutable — partial closes shrink current_volume.
+
+    `initial_sl_price` is frozen at entry time and never modified — all
+    R-multiple calculations use this value so that trail updates don't
+    alter the risk baseline. `sl_price` is mutable (trailed by the
+    agent) and drives SL/TP auto-triggers.
+    """
 
     symbol: str
     side: Direction
@@ -71,6 +78,7 @@ class _OpenPositionRecord:
     initial_volume: float
     current_volume: float
     sl_price: float
+    initial_sl_price: float
     tp_price: float | None
 
 
@@ -143,6 +151,7 @@ class OperationResult:
     reason: str = ""
     position: ExternalPosition | None = None
     closed_position: ExternalClosedPosition | None = None
+    old_sl: float | None = None
 
 
 # ─── Session ────────────────────────────────────────────────────────────────
@@ -304,6 +313,7 @@ class PaperSession:
             initial_volume=volume,
             current_volume=volume,
             sl_price=req.sl_price,
+            initial_sl_price=req.sl_price,
             tp_price=req.tp_price,
         )
         self.state.open_positions[req.symbol] = record
@@ -396,7 +406,7 @@ class PaperSession:
                 pnl_rr=realised_rr(
                     side=pos.side,
                     entry_price=pos.entry_price,
-                    sl_price=pos.sl_price,
+                    sl_price=pos.initial_sl_price,
                     exit_price=exit_price,
                 ),
                 entry_time=pos.entry_time,
@@ -424,10 +434,11 @@ class PaperSession:
             return OperationResult(
                 error=OrderError.INVALID_SL, reason="non_positive_sl"
             )
-        err = validate_sl_vs_entry(pos.side, pos.entry_price, new_sl)
+        old_sl = pos.sl_price
+        err = validate_trailing_sl(pos.side, old_sl, new_sl)
         if err is not OrderError.OK:
             return OperationResult(
-                error=err, reason="sl_on_wrong_side_of_entry"
+                error=err, reason=err.value, old_sl=old_sl
             )
         pos.sl_price = new_sl
         self._touch(now)
@@ -436,6 +447,7 @@ class PaperSession:
             error=OrderError.OK,
             reason="sl_modified",
             position=self._position_view(pos, mark if mark is not None else pos.entry_price),
+            old_sl=old_sl,
         )
 
     # ── Reads ───────────────────────────────────────────────────────────
@@ -498,7 +510,7 @@ class PaperSession:
             pnl_rr=realised_rr(
                 side=pos.side,
                 entry_price=pos.entry_price,
-                sl_price=pos.sl_price,
+                sl_price=pos.initial_sl_price,
                 exit_price=exit_price,
             ),
             entry_time=pos.entry_time,
@@ -538,7 +550,7 @@ class PaperSession:
             current_price_rr=current_price_rr(
                 side=pos.side,
                 entry_price=pos.entry_price,
-                sl_price=pos.sl_price,
+                sl_price=pos.initial_sl_price,
                 current_price=mark_price,
             ),
             open_amount_percentage=open_pct,
